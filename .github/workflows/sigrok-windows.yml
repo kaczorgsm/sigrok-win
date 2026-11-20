@@ -19,8 +19,12 @@ on:
         description: 'Gałąź libsigrok'
         default: 'master'
       mxe_ref:
-        description: 'Commit/gałąź MXE (gdy patche sigroka się nie nakładają - przypnij starszy commit)'
-        default: 'master'
+        description: 'Commit MXE (domyślnie 2022-11-23, z okresu ostatnich zmian w sigrok-util)'
+        default: '3d1dec4093be8564de1b756bcfc079161ec234ba'
+      qt5_freeze:
+        description: 'Qt 5.7 (qt5-freeze, jak oficjalnie) zamiast Qt 5.15 z MXE'
+        type: boolean
+        default: false
 
 env:
   MXE_TARGET: x86_64-w64-mingw32.static.posix
@@ -61,7 +65,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/mxe-git
-          key: mxe-${{ env.CACHE_VER }}-${{ env.MXE_TARGET }}-${{ inputs.mxe_ref }}-${{ hashFiles('sigrok-util/cross-compile/mingw/*.patch') }}
+          key: mxe-${{ env.CACHE_VER }}-${{ env.MXE_TARGET }}-${{ inputs.mxe_ref }}-qtf${{ inputs.qt5_freeze }}-${{ hashFiles('sigrok-util/cross-compile/mingw/libusb1_upgrade.patch') }}
 
       - name: Zbuduj MXE (tylko gdy brak cache)
         if: steps.mxe-cache.outputs.cache-hit != 'true'
@@ -69,10 +73,13 @@ jobs:
           git clone https://github.com/mxe/mxe.git ~/mxe-git
           cd ~/mxe-git
           git checkout "${{ inputs.mxe_ref }}"
-          patch -p1 < "$GITHUB_WORKSPACE/sigrok-util/cross-compile/mingw/mxe_fixes.patch"
+          # mxe_fixes.patch POMIJAMY: sami autorzy piszą w nim (2022-11), że nie pasuje
+          # do nowego MXE i zalecają build bez niego (to downgrade glib/binutils pod 32-bit).
+          # libusb1_upgrade.patch jest potrzebny (libusb pod Windows dla libsigrok).
           patch -p1 < "$GITHUB_WORKSPACE/sigrok-util/cross-compile/mingw/libusb1_upgrade.patch"
-          make MXE_TARGETS="$MXE_TARGET" \
-               MXE_PLUGIN_DIRS=plugins/examples/qt5-freeze \
+          PLUG=""
+          if [ "${{ inputs.qt5_freeze }}" = "true" ]; then PLUG="MXE_PLUGIN_DIRS=plugins/examples/qt5-freeze"; fi
+          make MXE_TARGETS="$MXE_TARGET" $PLUG \
                JOBS=4 -j 2 \
                $MXE_PKGS \
                qtbase_CONFIGURE_OPTS='-no-sql-mysql'
